@@ -2,10 +2,7 @@ package scripts.gengarnmz;
 
 import org.tribot.api.General;
 import org.tribot.api.Timing;
-import org.tribot.api2007.Equipment;
-import org.tribot.api2007.Game;
-import org.tribot.api2007.Login;
-import org.tribot.api2007.Skills;
+import org.tribot.api2007.*;
 import org.tribot.api2007.types.RSItem;
 import org.tribot.script.Script;
 import org.tribot.script.ScriptManifest;
@@ -13,8 +10,12 @@ import org.tribot.script.interfaces.*;
 import scripts.dax_api.api_lib.DaxWalker;
 import scripts.dax_api.api_lib.models.DaxCredentials;
 import scripts.dax_api.api_lib.models.DaxCredentialsProvider;
+import scripts.gengarlibrary.initialsetup.CameraZoom;
+import scripts.gengarnmz.data.AttackStyles;
+import scripts.gengarnmz.data.Constants;
 import scripts.gengarnmz.data.Vars;
 import scripts.gengarnmz.framework.Node;
+import scripts.gengarnmz.gui.NmzGui;
 import scripts.gengarnmz.nodes.*;
 
 import javax.imageio.ImageIO;
@@ -23,6 +24,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 
 @ScriptManifest(
@@ -40,18 +42,30 @@ public class GengarNmz extends Script implements Starting, Ending, Painting, Mes
     // Paint stuff
     private static Font font = new Font("Verdana", Font.BOLD, 14);
     private static long startTime = System.currentTimeMillis();
-    private static int startLvl = Skills.getActualLevel(Skills.SKILLS.RANGED);
-    private static int startXP = Skills.getXP(Skills.SKILLS.RANGED);
     private static final Rectangle TOGGLE_PAINT = new Rectangle(0, 339, 55, 23);
-    private static boolean hidePaint = false;
-    private static int gainedXP;
-    private static int gainedLvl;
-    private static long timeRan;
-    private static long xpPerHour;
+    private boolean hidePaint = false;
+    private int gainedXP;
+    private int gainedLvl;
+    private long timeRan;
+    private long xpPerHour;
+
+    // Paint GUI vars
+    private int startLvl;
+    private int startXP;
+    private String skillToTrain;
 
     @Override
     public void onStart()
     {
+        General.useAntiBanCompliance(true);
+        new NmzGui();
+
+        // Wait for GUI to get all variables.
+        while (!Vars.shouldExecute)
+        {
+            General.sleep(500);
+        }
+
         DaxWalker.setCredentials(new DaxCredentialsProvider()
         {
             @Override
@@ -59,44 +73,85 @@ public class GengarNmz extends Script implements Starting, Ending, Painting, Mes
                 return new DaxCredentials("sub_DPjXXzL5DeSiPf", "PUBLIC-KEY");
             }
         });
-    }
 
-    private void checkBlowpipe()
-    {
-        // Ensure that the player is wearing the gear that they want to use in NMZ
-        RSItem[] blowpipes = Equipment.find(12926, 12924);
+        Constants.initializeMappings();
 
-        if (blowpipes.length <= 0)
-        {
-            System.out.println("Blowpipe not equipped, ending script.");
-            Vars.shouldExecute = false;
-        }
-        else
-        {
-            blowpipes[0].click("Check");
-            System.out.println("GengarNmz ~~ checking blowpipe charges...");
-
-            if (Timing.waitCondition(()-> Vars.outOfDarts || Vars.outOfScales, 3000))
-                System.out.println("Blowpipe is out of charges...");
-        }
+        CameraZoom.zoomOut();
+        Combat.setAutoRetaliate(true);
     }
 
     @Override
     public void run()
     {
-        checkBlowpipe();
+        checkWeapon();
+        printGuiVars();
 
         Collections.addAll(nodes,
                 new Bank(),
                 new Dreaming(),
                 new GetNmzPots(),
-                new StartDream(),
+                new StartDreamDominic(),
                 new WalkBank(),
                 new WalkNmz(),
                 new ChargeBlowpipe(),
-                new DepositCoffer());
+                new DepositCoffer(),
+                new StartDreamPotion());
 
         loop();
+    }
+
+    private void checkWeapon()
+    {
+        RSItem[] weapons = Equipment.find(Vars.weaponIds);
+
+        if (weapons.length <= 0)
+        {
+            System.out.println("Weapon is not equipped, ending script.");
+            Vars.shouldExecute = false;
+            return;
+        }
+
+        initializeCombatStyleVars();
+        initializePaintVars();
+
+        // Check Blowpipe charges, if you are wearing BP
+        if (Vars.weaponIds == Constants.BLOWPIPE_IDS)
+        {
+            weapons[0].click("Check");
+            System.out.println("GengarNmz: checking blowpipe charges...");
+
+            if (Timing.waitCondition(()-> Vars.outOfDarts || Vars.outOfScales, 3000))
+            {
+                System.out.println("Blowpipe is out of charges...");
+            }
+        }
+
+        // Need a similar check for BSS
+    }
+
+    private void printGuiVars()
+    {
+        System.out.println("printGuiVars~~~~~~~~~~~~~~~~~~~~~~~~~");
+        System.out.println("Potion: " + Constants.COMBAT_POTION_MAPPINGS.get(Vars.combatPotionIds));
+        System.out.println("Weapon: " + Constants.WEAPON_STRING_MAPPING.get(Vars.weaponIds));
+        System.out.println("isRanging: " + Vars.isRanging);
+        System.out.println("Attack Style: " + AttackStyles.styleToString(Vars.attackStyles));
+    }
+
+    private void initializeCombatStyleVars()
+    {
+        int selectedCombatIndex = Combat.getSelectedStyleIndex();
+        HashMap<Integer, AttackStyles> attackStylesHashMap = Constants.WEAPON_MAPPING.get(Vars.weaponIds);
+
+        Vars.attackStyles = attackStylesHashMap.get(selectedCombatIndex);
+        Vars.skill = AttackStyles.styleToSkill(Vars.attackStyles);
+        skillToTrain = AttackStyles.styleToString(Vars.attackStyles);
+    }
+
+    private void initializePaintVars()
+    {
+        startLvl = Skills.getActualLevel(Vars.skill);
+        startXP = Skills.getXP(Vars.skill);
     }
 
     private void loop()
@@ -161,10 +216,14 @@ public class GengarNmz extends Script implements Starting, Ending, Painting, Mes
             int dartsAmount = Integer.parseInt(darts.substring(darts.lastIndexOf("x") + 2).replaceAll(",", ""));
 
             if (dartsAmount < 1500)
+            {
                 Vars.outOfDarts = true;
+            }
 
             if (scalesPercentage < 20)
+            {
                 Vars.outOfScales = true;
+            }
         }
         else if (s.equals("This barrel is empty."))
         {
@@ -185,9 +244,9 @@ public class GengarNmz extends Script implements Starting, Ending, Painting, Mes
     {
         General.println("GengarNmz has completed.");
         General.println("Total time ran: " + timeRan);
-        General.println("Total Range XP gained: " + gainedXP);
-        General.println("Total Range Lvls gained: " + gainedLvl);
-        General.println("Average XP/H: " + xpPerHour);
+        General.println("Total " + skillToTrain + " XP gained: " + gainedXP);
+        General.println("Total " + skillToTrain + " Lvls gained: " + gainedLvl);
+        General.println("Average " + skillToTrain + " XP/H: " + xpPerHour);
     }
 
     @Override
@@ -214,19 +273,19 @@ public class GengarNmz extends Script implements Starting, Ending, Painting, Mes
 
                 // Text data
                 timeRan = System.currentTimeMillis() - startTime;
-                int currentLvl = Skills.getActualLevel(Skills.SKILLS.RANGED);
-                gainedXP = Skills.getXP(Skills.SKILLS.RANGED) - startXP;
+                int currentLvl = Skills.getActualLevel(Vars.skill);
+                gainedXP = Skills.getXP(Vars.skill) - startXP;
                 gainedLvl = currentLvl - startLvl;
                 int nextLvl = currentLvl + 1;
                 xpPerHour = (long) (gainedXP * 3600000d / timeRan);
-                long xpToNextLvl = (Skills.getXPToNextLevel(Skills.SKILLS.RANGED));
+                long xpToNextLvl = (Skills.getXPToNextLevel(Vars.skill));
 
                 // Implementation of text
                 g.drawString("Runtime: " + Timing.msToString(timeRan), 200, 370);
                 g.drawString("Current Level: " + currentLvl, 200, 390);
-                g.drawString("Gained Range XP: " + gainedXP + " (Levels: " + gainedLvl + ")", 200, 410);
-                g.drawString("XP to level " + nextLvl + ": " + xpToNextLvl, 200, 430);
-                g.drawString("Range XP/H: " + xpPerHour, 200, 450);
+                g.drawString("Gained " + skillToTrain + " XP: " + gainedXP + " (Levels: " + gainedLvl + ")", 200, 410);
+                g.drawString( skillToTrain + " XP to level " + nextLvl + ": " + xpToNextLvl, 200, 430);
+                g.drawString( skillToTrain + " XP/H: " + xpPerHour, 200, 450);
             }
         }
     }
@@ -253,47 +312,14 @@ public class GengarNmz extends Script implements Starting, Ending, Painting, Mes
         }
     }
 
-    @Override
-    public void mouseClicked(Point point, int i, boolean b)
-    {
-
-    }
-
-    @Override
-    public void mouseDragged(Point point, int i, boolean b)
-    {
-
-    }
-
-    @Override
-    public void mouseMoved(Point point, boolean b)
-    {
-
-    }
-
-    @Override
-    public void clanMessageReceived(String s, String s1)
-    {
-    }
-
-    @Override
-    public void playerMessageReceived(String s, String s1)
-    {
-    }
-
-    @Override
-    public void tradeRequestReceived(String s)
-    {
-    }
-
-    @Override
-    public void personalMessageReceived(String s, String s1)
-    {
-    }
-
-    @Override
-    public void duelRequestReceived(String s, String s1)
-    {
-    }
+    // Not in use
+    @Override public void mouseClicked(Point point, int i, boolean b) {}
+    @Override public void mouseDragged(Point point, int i, boolean b) {}
+    @Override public void mouseMoved(Point point, boolean b) {}
+    @Override public void clanMessageReceived(String s, String s1) {}
+    @Override public void playerMessageReceived(String s, String s1) {}
+    @Override public void tradeRequestReceived(String s) {}
+    @Override public void personalMessageReceived(String s, String s1) {}
+    @Override public void duelRequestReceived(String s, String s1) {}
 }
 

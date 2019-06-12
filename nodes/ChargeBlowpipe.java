@@ -6,7 +6,7 @@ import org.tribot.api2007.Inventory;
 import org.tribot.api2007.types.RSItem;
 import scripts.gengarnmz.data.Constants;
 import scripts.gengarnmz.framework.Node;
-import scripts.gengarnmz.utility.Validators;
+import scripts.gengarnmz.framework.Validators;
 
 public class ChargeBlowpipe extends Node
 {
@@ -15,6 +15,8 @@ public class ChargeBlowpipe extends Node
     @Override
     public void execute()
     {
+        System.out.println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+        System.out.println("ChargeBlowpipe initiated... Executing...");
         System.out.println("Un-equip blowpipe and charge blowpipe...");
 
         if (Equipment.remove(Equipment.SLOTS.WEAPON) > 0 || Inventory.find(BLOWPIPE_IDS).length > 0)
